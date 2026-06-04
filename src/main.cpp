@@ -153,9 +153,10 @@ HardwareSerial debug(USART2);
 
 VescUart UART;
 
-int Servo_X = PA0;
-int Servo_Y = PA1;
-Servo servo;
+int Servo_Y = PA0;
+int Servo_X = PA1;
+Servo servox;
+Servo servoy;
 
 static float input_rc_ratio = 0.5f;
 
@@ -164,6 +165,43 @@ int Y_pin = PA5;
 
 static float X_input=0.0f;
 static float Y_input=0.0f;
+
+static float x_min=330.0f;
+static float x_mid=527.0f;
+static float x_max=800.0f;
+
+static float y_min=337.0f;
+static float y_mid=520.0f;
+static float y_max=650.0f;
+
+static float xx_table[7]={330.0f,390.0f,450.0f,500.0f,620.0f,710.0f,800.0f};
+static float xy_table[7]={0.0f,50.0f,150.0f,510.0f,875.0f,975.0f,1024.0f};
+static float yx_table[7]={330.0f,390.0f,450.0f,527.0f,620.0f,710.0f,800.0f};
+static float yy_table[7]={0.0f,100.0f,250.0f,510.0f,775.0f,925.0f,1024.0f};
+
+
+float map_output(float value, float * input, float * output)
+{
+  float outputvalue;
+  uint8_t i=0;
+  if(value<=input[0])
+  {
+    return output[0];
+  }
+  if(value>=input[6])
+  {
+    return output[6];
+  }
+  for (i=0;i<=6;i++)
+  {
+    if(value>=input[i] && value<input[i+1])
+    {
+      outputvalue=mapfloat(value,input[i],input[i+1],output[i],output[i+1]);
+      break;
+    }
+  }
+  return outputvalue;
+}
 
 // MCP_CAN CAN0(PA4);  // Set CS to pin PA4
 // #define CAN0_INT PA2 // Set INT to pin PA2
@@ -370,7 +408,7 @@ static void __attribute__ ((optimize("-O0"))) task1(void *pvParameters) {
                       debug.println(torque_y);
                       if(old_torque_y!=torque_y)
                       {
-                        servo.write(servo_out);
+                        // servo.write(servo_out);
                         // UART.setDuty(torque_y);
                         #ifdef USE_VESC
                           UART.setCurrent(torque_y*3.0f);
@@ -435,7 +473,7 @@ static void __attribute__ ((optimize("-O0"))) task1(void *pvParameters) {
                         {
                           // UART.setDuty(torque_y);
                           servo_out=mapfloat(torque_y, -0.2f, 0.2f, 0.0f, 180.0f);
-                          servo.write(servo_out);
+                          // servo.write(servo_out);
                           #ifdef USE_VESC
                             UART.setCurrent(torque_y*3.0f);
                           #else
@@ -501,7 +539,7 @@ static void __attribute__ ((optimize("-O0"))) task1(void *pvParameters) {
                         if(old_torque_y!=torque_y)
                         {
                           servo_out=mapfloat(torque_y, -0.2f, 0.2f, 0.0f, 180.0f);
-                          servo.write(servo_out);
+                          // servo.write(servo_out);
                           // UART.setDuty(torque_y);
                           #ifdef USE_VESC
                             UART.setCurrent(torque_y*3.0f);
@@ -564,18 +602,24 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
   static uint8_t tor_x_h;
   static uint8_t tor_x_l;
   static int16_t tor_y;
+  static int16_t tor_x;
   static char debug_buffer[32];
   static uint32_t tick = HAL_GetTick();
   static uint32_t oldtick = HAL_GetTick();
   static uint32_t diff_tick=0;
   static float current_pos=0.0f;
   static float old_torque_y=0.0f;
+  static float old_torque_x=0.0f;
   uint8_t cho;
     float pos=0.0f;
   float speed=0.0f;
   char tor_buf[32];
   static float servo_out=90.0f;
   Odrive_index=0;
+
+  static float servo_x=90.0f;
+  static float servo_y=90.0f;
+
   for (;;) {
       if (Vpforce.available()>0)
       {
@@ -627,35 +671,76 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                     if(Vpforce_buffer[1]==0x31)
                     {
                       X_input=analogRead(X_pin);
-                      pos_x=(float)X_input;
+                      // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
+                      float mapped_X =map_output(X_input,xx_table,xy_table);
+                      pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
+                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 60.0f, 120.0f);
+                      // servox.write(servo_x);
+
+                      uint16_t crc=0;
+                      // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                      // crc=crc16_ccitt(&data1,10);
+
+                      //            char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                      // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
+
+                                 char data[10]={0x21,0x30,0x00,0x98,0x02,0x00,0xfe,0xff,0x2b,0x30};//cda7 //0003217003c3010101052a30dac900
+                      char trame[15]={0x00,0x03,0x21,0x30,0x03,0x98,0x02,0x07,0xfe,0xff,0x2b,0x30,0x1e,0x38,0x00};
+                      crc=crc16_ccitt(&data,10);
+                      // pos_y=3744.0f;
+                      // pos_y=2331.67017f;
+                      int16_t posx_int=(int16_t)pos_x;
+                                    /*
+                      y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
+                      # print(y_2s)
+                      trame = (header+'00'+y_2s+dy+footer)*/
+                      pos_x_h=(uint8_t)(posx_int >> 8);
+                      pos_x_l=(uint8_t)(posx_int);
+                      data[3]=pos_x_l;
+                      data[4]=pos_x_h;
+                      crc=crc16_ccitt(&data,10);
+                      crc_h=(uint8_t)(crc >> 8 );
+                      crc_l=(uint8_t)(crc);
+                      if(pos_x_h==0x00)
+                      {
+                        trame[4]=0x02;
+                        trame[5]=pos_x_l;
+                        trame[6]=pos_x_h;
+                      }
+                      else
+                      {
+                        trame[4]=0x03;
+                        trame[5]=pos_x_l;
+                        trame[6]=pos_x_h;
+                      }
+                      trame[12]=crc_l;
+                      trame[13]=crc_h;
+                      for(uint8_t i=0;i<=15;i++)
+                      {
+                        Vpforce.write(trame[i]);
+                      }
+
                     }
                     else if(Vpforce_buffer[1]==0x11)
                     {
-                      // Read analog here
+                       // Read analog here
                       Y_input=analogRead(Y_pin);
-                      pos_y=(float)Y_input;
-                      // servo_out=mapfloat((float)Y_input, 0.0f, 1023.0f, 0.0f, 180.0f);
-                      // servo.write(servo_out);
-
-                        // pos_y=4000.0f*(current_pos)/360.0f;
-                      // tick = HAL_GetTick();
-                      // debug.println(tick);
-                      // tick =xTaskGetTickCount();
-                      // debug.println(tick);
-                      char header[2] = {0x21,0x70};
-                      char dy[3]={0x00,0x00,0x00};
-                      char dy_p[3]={0x01,0x01,0x05};
-                      char footer[2] = {0x2a,0x30};
+                      // pos_y=(float)Y_input;
+                      // servo_y=mapfloat((float)Y_input,y_min, y_max, 120.0f, 60.0f);
+                      float mapped_Y =map_output(Y_input,yx_table,yy_table);
+                      pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
+                      servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
 
                       uint16_t crc=0;
                       // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
                       // crc=crc16_ccitt(&data1,10);
                       char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                      char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
                       crc=crc16_ccitt(&data,10);
                       // pos_y=3744.0f;
                       // pos_y=2331.67017f;
                       int16_t posy_int=(int16_t)pos_y;
-                      char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
+                      // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
                                     /*
                       y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
                       # print(y_2s)
@@ -691,11 +776,6 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                   break;
                   case 0x02:
                   {
-                    
-                    // for(uint8_t i=0;i<=6;i++)
-                    // {
-                    //   debug.write(Vpforce_buffer[i]);
-                    // }
                     if(Vpforce_buffer[1]==0x20)
                     {
 
@@ -704,13 +784,6 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                     {
 
                     }
-                    // uint8_t nb = sprintf(debug_buffer,"0x02, %02x %02x %02x %02x \r\n",Vpforce_buffer[1],Vpforce_buffer[2],Vpforce_buffer[3],Vpforce_buffer[4]);
-
-                    // for(uint8_t i=0;i<=nb;i++)
-                    // {
-                    //   debug.write(debug_buffer[i]);
-                    // }
-
                     writing_torque=1;
                     torque_x=0.0f;
                     torque_y=0.0f;
@@ -722,9 +795,17 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                       debug.println(torque_y);
                       if(old_torque_y!=torque_y)
                       {
-                        servo.write(servo_out);
+                        servoy.write(servo_y);
+                        // servo.write(servo_out);
                         // UART.setDuty(torque_y);
                         old_torque_y=torque_y;
+                      }
+                      if(old_torque_x!=torque_x)
+                      {
+                        servox.write(servo_x);
+                        // servo.write(servo_out);
+                        // UART.setDuty(torque_y);
+                        old_torque_x=torque_x;
                       }
                       oldtick=tick;
                     }
@@ -758,12 +839,33 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_y);
                         if(old_torque_y!=torque_y)
                         {
-                          // UART.setDuty(torque_y);
-                          // servo_out=mapfloat(torque_y, -0.2f, 0.2f, 0.0f, 180.0f);
-                          // servo.write(servo_out);
-                          servo_out=mapfloat((float)Y_input+(torque_y*512.0f), 0.0f, 1023.0f, 0.0f, 180.0f);
-                          servo.write(servo_out);
+                          servo_y-=torque_y*30.0f;
+                          servoy.write(servo_y);
                           old_torque_y=torque_y;
+                        }
+                        oldtick=tick;
+                      }
+                      // debug.println("0x03");
+                      // debug.write(printf("%f\r",torque_y));
+                      new_torque=1;
+                    }
+                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                    {
+                      tor_x_l=Vpforce_buffer[2];
+                      tor_x = (int16_t)tor_x_l;
+                      torque_x=(float)tor_x/1000.0f;
+                      
+                      tick = HAL_GetTick();
+                      diff_tick=tick-oldtick;
+                      // if(diff_tick>1)
+                      {
+                        debug.println("0x03");
+                        debug.println(torque_y);
+                        if(old_torque_x!=torque_x)
+                        {
+                          servo_x+=torque_x*30.0f;
+                          servox.write(servo_x);
+                          old_torque_x=torque_x;
                         }
                         oldtick=tick;
                       }
@@ -799,11 +901,39 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_y);
                         if(old_torque_y!=torque_y)
                         {
-                          // servo_out=mapfloat(torque_y, -0.2f, 0.2f, 0.0f, 180.0f);
-                          servo_out=mapfloat((float)Y_input+(torque_y*512.0f), 0.0f, 1023.0f, 0.0f, 180.0f);
-                          servo.write(servo_out);
-                          // UART.setDuty(torque_y);
+                          servo_y-=torque_y*30.0f;
+                          servoy.write(servo_y);
                           old_torque_y=torque_y;
+                        }
+                        oldtick=tick;
+                      }
+                      // debug.println("0x07");
+                      
+                      // debug.write(printf("%f\r",torque_y));
+                    
+                      new_torque=1;
+                    }
+                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[4]==0x01)
+                    {
+                      tor_x_h=Vpforce_buffer[3];
+                      tor_x_l=Vpforce_buffer[2];
+                      tor_x = (int16_t)tor_x_h<<8 | tor_x_l;
+                      torque_x=(float)tor_x/1000.0f;
+                      if(torque_x>20.0f || torque_x<-20.0f)
+                      {
+                        debug.write(printf("%f\r",torque_x));
+                      }
+                      tick = HAL_GetTick();
+                      diff_tick=tick-oldtick;
+                      // if(diff_tick>1)
+                      {
+                        debug.println("0x07");
+                        debug.println(torque_x);
+                        if(old_torque_x!=torque_x)
+                        {
+                          servo_x+=torque_x*30.0f;
+                          servox.write(servo_x);
+                          old_torque_x=torque_x;
                         }
                         oldtick=tick;
                       }
@@ -1040,8 +1170,10 @@ void setup() {
 
   UART.setSerialPort(&Odrive);
 
-  servo.attach(Servo_X);
-  servo.write(90);
+  servoy.attach(Servo_Y);
+  servoy.write(90);
+  servox.attach(Servo_X);
+  servox.write(90);
 
   int result = myFunction(2, 3);
   xTaskCreate(task4,"Task1",

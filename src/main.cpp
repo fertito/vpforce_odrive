@@ -160,6 +160,8 @@ Servo servoy;
 
 static float input_rc_ratio = 0.5f;
 
+static float force_multiplicator = 10.0f;
+
 int X_pin = PA4;
 int Y_pin = PA5;
 
@@ -174,10 +176,10 @@ static float y_min=337.0f;
 static float y_mid=520.0f;
 static float y_max=650.0f;
 
-static float xx_table[7]={330.0f,390.0f,450.0f,500.0f,620.0f,710.0f,800.0f};
-static float xy_table[7]={0.0f,50.0f,150.0f,510.0f,875.0f,975.0f,1024.0f};
-static float yx_table[7]={330.0f,390.0f,450.0f,527.0f,620.0f,710.0f,800.0f};
-static float yy_table[7]={0.0f,100.0f,250.0f,510.0f,775.0f,925.0f,1024.0f};
+static float xx_table[7]={250.0f,350.0f,450.0f,520.0f,620.0f,710.0f,800.0f};
+static float xy_table[7]={0.0f,100.0f,250.0f,510.0f,875.0f,975.0f,1024.0f};
+static float yx_table[7]={330.0f,390.0f,450.0f,510.0f,620.0f,710.0f,800.0f};
+static float yy_table[7]={0.0f,100.0f,250.0f,510.0f,850.0f,925.0f,1024.0f};
 
 
 float map_output(float value, float * input, float * output)
@@ -585,7 +587,7 @@ static void __attribute__ ((optimize("-O0"))) task1(void *pvParameters) {
   }
 }
  
-static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
+static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) {
   uint8_t ch;
   Vpforce_state=WAITING_FOR_MAGIC_NUMBER;
   Vpforce_index=0;
@@ -619,6 +621,8 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
 
   static float servo_x=90.0f;
   static float servo_y=90.0f;
+  static float servo_out_x=90.0f;
+  static float servo_out_y=90.0f;
 
   for (;;) {
       if (Vpforce.available()>0)
@@ -674,7 +678,7 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                       // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
                       float mapped_X =map_output(X_input,xx_table,xy_table);
                       pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
-                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 60.0f, 120.0f);
+                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 65.0f, 125.0f);
                       // servox.write(servo_x);
 
                       uint16_t crc=0;
@@ -780,40 +784,59 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                     {
 
                     }
-                    else if(Vpforce_buffer[1]==0x30)
+                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
                     {
-
-                    }
-                    writing_torque=1;
-                    torque_x=0.0f;
-                    torque_y=0.0f;
-                    tick = HAL_GetTick();
-                    diff_tick=tick-oldtick;
-                    // if(diff_tick>1)
-                    {
-                      debug.println("0x02");
-                      debug.println(torque_y);
-                      if(old_torque_y!=torque_y)
-                      {
-                        servoy.write(servo_y);
-                        // servo.write(servo_out);
-                        // UART.setDuty(torque_y);
-                        old_torque_y=torque_y;
-                      }
+                      writing_torque=1;
+                      torque_x=0.0f;
                       if(old_torque_x!=torque_x)
                       {
                         servox.write(servo_x);
-                        // servo.write(servo_out);
-                        // UART.setDuty(torque_y);
                         old_torque_x=torque_x;
                       }
-                      oldtick=tick;
+                      new_torque=1;
                     }
+                    else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                    {
+                      writing_torque=1;
+                      torque_y=0.0f;
+                      if(old_torque_y!=torque_y)
+                      {
+                        servoy.write(servo_y);
+                        old_torque_y=torque_y;
+                      }
+                      if(old_torque_x!=torque_x)
+                      new_torque=1;
+                    }
+                    // writing_torque=1;
+                    // torque_x=0.0f;
+                    // torque_y=0.0f;
                     // tick = HAL_GetTick();
-                    // debug.println("0x02");
-                    // debug.println(tick);
-                    // debug.write(printf("%f\r",torque_y));
-                    new_torque=1;
+                    // diff_tick=tick-oldtick;
+                    // // if(diff_tick>1)
+                    // {
+                    //   debug.println("0x02");
+                    //   debug.println(torque_y);
+                    //   if(old_torque_y!=torque_y)
+                    //   {
+                    //     servoy.write(servo_y);
+                    //     // servo.write(servo_out);
+                    //     // UART.setDuty(torque_y);
+                    //     old_torque_y=torque_y;
+                    //   }
+                    //   if(old_torque_x!=torque_x)
+                    //   {
+                    //     servox.write(servo_x);
+                    //     // servo.write(servo_out);
+                    //     // UART.setDuty(torque_y);
+                    //     old_torque_x=torque_x;
+                    //   }
+                    //   oldtick=tick;
+                    // }
+                    // // tick = HAL_GetTick();
+                    // // debug.println("0x02");
+                    // // debug.println(tick);
+                    // // debug.write(printf("%f\r",torque_y));
+                    // new_torque=1;
 
                   }
                   break;
@@ -839,8 +862,16 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_y);
                         if(old_torque_y!=torque_y)
                         {
-                          servo_y-=torque_y*30.0f;
-                          servoy.write(servo_y);
+                          servo_out_y=servo_y-torque_y*force_multiplicator;
+                          if(servo_out_y<=50.0f)
+                          {
+                            servo_out_y=50.0f;
+                          }
+                          else if(servo_out_y>=130.0f)
+                          {
+                            servo_out_y=130.0f;
+                          }
+                          servoy.write(servo_out_y);
                           old_torque_y=torque_y;
                         }
                         oldtick=tick;
@@ -863,8 +894,16 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_y);
                         if(old_torque_x!=torque_x)
                         {
-                          servo_x+=torque_x*30.0f;
-                          servox.write(servo_x);
+                          servo_out_x=servo_x+torque_x*force_multiplicator;
+                          if(servo_out_x<=50.0f)
+                          {
+                            servo_out_x=50.0f;
+                          }
+                          else if(servo_out_x>=130.0f)
+                          {
+                            servo_out_x=130.0f;
+                          }
+                          servox.write(servo_out_x);
                           old_torque_x=torque_x;
                         }
                         oldtick=tick;
@@ -901,8 +940,16 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_y);
                         if(old_torque_y!=torque_y)
                         {
-                          servo_y-=torque_y*30.0f;
-                          servoy.write(servo_y);
+                          servo_out_y=servo_y-torque_y*force_multiplicator;
+                          if(servo_out_y<=45.0f)
+                          {
+                            servo_out_y=45.0f;
+                          }
+                          else if(servo_out_y>=135.0f)
+                          {
+                            servo_out_y=135.0f;
+                          }
+                          servoy.write(servo_out_y);
                           old_torque_y=torque_y;
                         }
                         oldtick=tick;
@@ -931,8 +978,16 @@ static void __attribute__ ((optimize("-O0"))) task4(void *pvParameters) {
                         debug.println(torque_x);
                         if(old_torque_x!=torque_x)
                         {
-                          servo_x+=torque_x*30.0f;
-                          servox.write(servo_x);
+                          servo_out_x=servo_x+torque_x*force_multiplicator;
+                          if(servo_out_x<=45.0f)
+                          {
+                            servo_out_x=45.0f;
+                          }
+                          else if(servo_out_x>=135.0f)
+                          {
+                            servo_out_x=135.0f;
+                          }
+                          servox.write(servo_out_x);
                           old_torque_x=torque_x;
                         }
                         oldtick=tick;
@@ -1176,7 +1231,7 @@ void setup() {
   servox.write(90);
 
   int result = myFunction(2, 3);
-  xTaskCreate(task4,"Task1",
+  xTaskCreate(task_vp_servo,"Task1",
               1000,NULL,tskIDLE_PRIORITY + 2,NULL);
   // xTaskCreate(task2,"Task2",
   //             1000,NULL,tskIDLE_PRIORITY + 2,NULL);

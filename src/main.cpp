@@ -69,7 +69,18 @@ unsigned short crc16_ccitt(const void *buf, int len)
 
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
 {
- return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  if(x<=in_min)
+  {
+    return out_min;
+  }
+  else if(x>=in_max)
+  {
+    return out_max;
+  }
+  else
+  {
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  }
 }
 
 uint8_t Vpforce_buffer[256];
@@ -125,7 +136,8 @@ static float xy_table[7]={0.0f,100.0f,250.0f,510.0f,875.0f,975.0f,1024.0f};
 static float yx_table[7]={330.0f,390.0f,450.0f,510.0f,620.0f,710.0f,800.0f};
 static float yy_table[7]={0.0f,100.0f,250.0f,510.0f,850.0f,925.0f,1024.0f};
 
-static float deadband = 100.0f;
+static float deadband = 50.0f;
+static float mid_point = 512.0f;
 
 static float roll_factor=0.5f;
 static float pitch_factor=0.5f;
@@ -632,8 +644,40 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
                       // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
                       float mapped_X =map_output(X_input,xx_table,xy_table);
                       pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
-                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 65.0f, 125.0f);
+                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 60.0f, 120.0f);
                       // servox.write(servo_x);
+                      float Odrive_axis0_value =0;
+                      if((mapped_X<=mid_point+deadband)&&(mapped_X>=mid_point-deadband))
+                      {
+                        //send 0 to odrive
+                        Odrive_axis0_value =0;
+                      }
+                      else
+                      {
+                        if(mapped_X>=mid_point+deadband)
+                        {
+                          Odrive_axis0_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+                        }
+                        if(mapped_X<=mid_point-deadband)
+                        {
+                          Odrive_axis0_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
+                        }
+                      }
+
+                      memcpy(tor_buf,0,32);
+                      uint8_t nb = sprintf(tor_buf,"p 0 %3f 0 0\r\n",Odrive_axis0_value);
+                      for(uint8_t i=0;i<=nb-1;i++)
+                      {
+                        Odrive.write(tor_buf[i]);
+                      }
+
+                      memcpy(tor_buf,0,32);
+                      nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis0_value);
+                      for(uint8_t i=0;i<=nb-1;i++)
+                      {
+                        Odrive.write(tor_buf[i]);
+                      }
+                      // Odrive_state = ASKING_FEEDBACK;
 
                       uint16_t crc=0;
                       // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
@@ -688,6 +732,7 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
                       float mapped_Y =map_output(Y_input,yx_table,yy_table);
                       pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
                       servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
+
 
                       uint16_t crc=0;
                       // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900

@@ -125,6 +125,11 @@ static float xy_table[7]={0.0f,100.0f,250.0f,510.0f,875.0f,975.0f,1024.0f};
 static float yx_table[7]={330.0f,390.0f,450.0f,510.0f,620.0f,710.0f,800.0f};
 static float yy_table[7]={0.0f,100.0f,250.0f,510.0f,850.0f,925.0f,1024.0f};
 
+static float deadband = 100.0f;
+
+static float roll_factor=0.5f;
+static float pitch_factor=0.5f;
+
 float Setpoint(float torque, float position)
 {
   return 0.0f;

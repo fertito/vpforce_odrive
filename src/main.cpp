@@ -142,6 +142,9 @@ static float mid_point = 512.0f;
 static float roll_factor=0.5f;
 static float pitch_factor=0.5f;
 
+static float roll_value=0.0f;
+static float pitch_value=0.0f;
+
 float Setpoint(float torque, float position)
 {
   return 0.0f;
@@ -646,23 +649,29 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
                       pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
                       servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 60.0f, 120.0f);
                       // servox.write(servo_x);
-                      float Odrive_axis0_value =0;
+                      
                       if((mapped_X<=mid_point+deadband)&&(mapped_X>=mid_point-deadband))
                       {
                         //send 0 to odrive
-                        Odrive_axis0_value =0;
+                        roll_value =0.0f;
                       }
                       else
                       {
                         if(mapped_X>=mid_point+deadband)
                         {
-                          Odrive_axis0_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+                          roll_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
                         }
                         if(mapped_X<=mid_point-deadband)
                         {
-                          Odrive_axis0_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
+                          roll_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
                         }
                       }
+
+                      float Odrive_axis0_value = 0.0f;
+                      float Odrive_axis1_value = 0.0f;
+
+                      Odrive_axis0_value = (roll_value*roll_factor)+(pitch_value*pitch_factor);
+                      Odrive_axis1_value = (-roll_value*roll_factor)+(pitch_value*pitch_factor);
 
                       memcpy(tor_buf,0,32);
                       uint8_t nb = sprintf(tor_buf,"p 0 %3f 0 0\r\n",Odrive_axis0_value);
@@ -672,7 +681,7 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
                       }
 
                       memcpy(tor_buf,0,32);
-                      nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis0_value);
+                      nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis1_value);
                       for(uint8_t i=0;i<=nb-1;i++)
                       {
                         Odrive.write(tor_buf[i]);
@@ -732,6 +741,23 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
                       float mapped_Y =map_output(Y_input,yx_table,yy_table);
                       pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
                       servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
+
+                      
+                      if((mapped_Y<=mid_point+deadband)&&(mapped_Y>=mid_point-deadband))
+                      {
+                        pitch_value =0.0f;
+                      }
+                      else
+                      {
+                        if(mapped_Y>=mid_point+deadband)
+                        {
+                          pitch_value=mapfloat(mapped_Y,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+                        }
+                        if(mapped_Y<=mid_point-deadband)
+                        {
+                          pitch_value=mapfloat(mapped_Y,0.0f,mid_point-deadband,-1.0f,0.0f);
+                        }
+                      }
 
 
                       uint16_t crc=0;

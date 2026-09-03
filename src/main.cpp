@@ -593,452 +593,539 @@ static void __attribute__ ((optimize("-O0"))) task_vp_servo(void *pvParameters) 
   static float servo_out_x=90.0f;
   static float servo_out_y=90.0f;
 
+  uint32_t read_error=0;
+
   for (;;) {
-      if (Vpforce.available()>0)
+      if (read_error>=5000)
       {
-        while(Vpforce.available()>0)
+        // digitalWrite(LED1, HIGH);
+        // vTaskDelay(10);
+        // digitalWrite(LED1, LOW);
+
+        Y_input=analogRead(Y_pin);
+        // pos_y=(float)Y_input;
+        // servo_y=mapfloat((float)Y_input,y_min, y_max, 120.0f, 60.0f);
+        float mapped_Y =map_output(Y_input,yx_table,yy_table);
+        pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
+        servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
+        servoy.write(servo_y);
+
+        
+        if((mapped_Y<=mid_point+deadband)&&(mapped_Y>=mid_point-deadband))
         {
-          ch=Vpforce.read();
-          // debug.write(ch);
-          switch(Vpforce_state)
+          pitch_value =0.0f;
+        }
+        else
+        {
+          if(mapped_Y>=mid_point+deadband)
           {
-            case WAITING_FOR_MAGIC_NUMBER:
+            pitch_value=mapfloat(mapped_Y,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+          }
+          if(mapped_Y<=mid_point-deadband)
+          {
+            pitch_value=mapfloat(mapped_Y,0.0f,mid_point-deadband,-1.0f,0.0f);
+          }
+        }
+
+        X_input=analogRead(X_pin);
+        // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
+        float mapped_X =map_output(X_input,xx_table,xy_table);
+        pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
+        servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 55.0f, 115.0f);
+        servox.write(servo_x);
+        
+        if((mapped_X<=mid_point+deadband)&&(mapped_X>=mid_point-deadband))
+        {
+          //send 0 to odrive
+          roll_value =0.0f;
+        }
+        else
+        {
+          if(mapped_X>=mid_point+deadband)
+          {
+            roll_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+          }
+          if(mapped_X<=mid_point-deadband)
+          {
+            roll_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
+          }
+        }
+
+        float Odrive_axis0_value = 0.0f;
+        float Odrive_axis1_value = 0.0f;
+
+        Odrive_axis0_value = (roll_value*roll_factor)+(pitch_value*pitch_factor);
+        Odrive_axis1_value = (-roll_value*roll_factor)+(pitch_value*pitch_factor);
+
+        memcpy(tor_buf,0,32);
+        uint8_t nb = sprintf(tor_buf,"p 0 %3f 0 0\r\n",Odrive_axis0_value);
+        for(uint8_t i=0;i<=nb-1;i++)
+        {
+          Odrive.write(tor_buf[i]);
+        }
+
+        memcpy(tor_buf,0,32);
+        nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis1_value);
+        for(uint8_t i=0;i<=nb-1;i++)
+        {
+          Odrive.write(tor_buf[i]);
+        }
+        vTaskDelay(20);
+      }
+      else
+      {
+        if (Vpforce.available()>0)
+        {
+          read_error=0;
+          while(Vpforce.available()>0)
+          {
+            ch=Vpforce.read();
+            // debug.write(ch);
+            switch(Vpforce_state)
             {
-              if(ch==0x00)
+              case WAITING_FOR_MAGIC_NUMBER:
               {
-                Vpforce_state=WAITING_FOR_FRAME_ID;
-              }
-              else
-              {}
-              break;
-            }
-            case WAITING_FOR_FRAME_ID:
-            {
-              if(ch==0x00)
-              {
-                Vpforce_state=WAITING_FOR_FRAME_ID;
-              }
-              else
-              {
-                Vpforce_state=WAITING_FOR_END_NUMBER;
-                Vpforce_buffer[Vpforce_index]=ch;
-                Vpforce_index++;
-              }
-              break;
-            }
-            case WAITING_FOR_END_NUMBER:
-            {
-              if(ch==0x00)
-              {
-                Vpforce_state=WAITING_FOR_MAGIC_NUMBER;
-                Vpforce_index=0;
-                switch(Vpforce_buffer[0])
+                if(ch==0x00)
                 {
-                  case 0x04:
-                  {
-                    if(writing_pos==0)//odrive is not currently writing his feedback
-                    {
-                      old_pos_x=pos_x;
-                      old_pos_y=pos_y;
-                    }
-                    if(Vpforce_buffer[1]==0x31)
-                    {
-                      X_input=analogRead(X_pin);
-                      // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
-                      float mapped_X =map_output(X_input,xx_table,xy_table);
-                      pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
-                      servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 60.0f, 120.0f);
-                      // servox.write(servo_x);
-                      
-                      if((mapped_X<=mid_point+deadband)&&(mapped_X>=mid_point-deadband))
-                      {
-                        //send 0 to odrive
-                        roll_value =0.0f;
-                      }
-                      else
-                      {
-                        if(mapped_X>=mid_point+deadband)
-                        {
-                          roll_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
-                        }
-                        if(mapped_X<=mid_point-deadband)
-                        {
-                          roll_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
-                        }
-                      }
-
-                      float Odrive_axis0_value = 0.0f;
-                      float Odrive_axis1_value = 0.0f;
-
-                      Odrive_axis0_value = (roll_value*roll_factor)+(pitch_value*pitch_factor);
-                      Odrive_axis1_value = (-roll_value*roll_factor)+(pitch_value*pitch_factor);
-
-                      memcpy(tor_buf,0,32);
-                      uint8_t nb = sprintf(tor_buf,"p 0 %3f 0 0\r\n",Odrive_axis0_value);
-                      for(uint8_t i=0;i<=nb-1;i++)
-                      {
-                        Odrive.write(tor_buf[i]);
-                      }
-
-                      memcpy(tor_buf,0,32);
-                      nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis1_value);
-                      for(uint8_t i=0;i<=nb-1;i++)
-                      {
-                        Odrive.write(tor_buf[i]);
-                      }
-                      // Odrive_state = ASKING_FEEDBACK;
-
-                      uint16_t crc=0;
-                      // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
-                      // crc=crc16_ccitt(&data1,10);
-
-                      //            char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
-                      // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
-
-                                 char data[10]={0x21,0x30,0x00,0x98,0x02,0x00,0xfe,0xff,0x2b,0x30};//cda7 //0003217003c3010101052a30dac900
-                      char trame[15]={0x00,0x03,0x21,0x30,0x03,0x98,0x02,0x07,0xfe,0xff,0x2b,0x30,0x1e,0x38,0x00};
-                      crc=crc16_ccitt(&data,10);
-                      // pos_y=3744.0f;
-                      // pos_y=2331.67017f;
-                      int16_t posx_int=(int16_t)pos_x;
-                                    /*
-                      y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
-                      # print(y_2s)
-                      trame = (header+'00'+y_2s+dy+footer)*/
-                      pos_x_h=(uint8_t)(posx_int >> 8);
-                      pos_x_l=(uint8_t)(posx_int);
-                      data[3]=pos_x_l;
-                      data[4]=pos_x_h;
-                      crc=crc16_ccitt(&data,10);
-                      crc_h=(uint8_t)(crc >> 8 );
-                      crc_l=(uint8_t)(crc);
-                      if(pos_x_h==0x00)
-                      {
-                        trame[4]=0x02;
-                        trame[5]=pos_x_l;
-                        trame[6]=pos_x_h;
-                      }
-                      else
-                      {
-                        trame[4]=0x03;
-                        trame[5]=pos_x_l;
-                        trame[6]=pos_x_h;
-                      }
-                      trame[12]=crc_l;
-                      trame[13]=crc_h;
-                      for(uint8_t i=0;i<=15;i++)
-                      {
-                        Vpforce.write(trame[i]);
-                      }
-
-                    }
-                    else if(Vpforce_buffer[1]==0x11)
-                    {
-                       // Read analog here
-                      Y_input=analogRead(Y_pin);
-                      // pos_y=(float)Y_input;
-                      // servo_y=mapfloat((float)Y_input,y_min, y_max, 120.0f, 60.0f);
-                      float mapped_Y =map_output(Y_input,yx_table,yy_table);
-                      pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
-                      servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
-
-                      
-                      if((mapped_Y<=mid_point+deadband)&&(mapped_Y>=mid_point-deadband))
-                      {
-                        pitch_value =0.0f;
-                      }
-                      else
-                      {
-                        if(mapped_Y>=mid_point+deadband)
-                        {
-                          pitch_value=mapfloat(mapped_Y,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
-                        }
-                        if(mapped_Y<=mid_point-deadband)
-                        {
-                          pitch_value=mapfloat(mapped_Y,0.0f,mid_point-deadband,-1.0f,0.0f);
-                        }
-                      }
-
-
-                      uint16_t crc=0;
-                      // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
-                      // crc=crc16_ccitt(&data1,10);
-                      char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
-                      char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
-                      crc=crc16_ccitt(&data,10);
-                      // pos_y=3744.0f;
-                      // pos_y=2331.67017f;
-                      int16_t posy_int=(int16_t)pos_y;
-                      // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
-                                    /*
-                      y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
-                      # print(y_2s)
-                      trame = (header+'00'+y_2s+dy+footer)*/
-                      pos_y_h=(uint8_t)(posy_int >> 8);
-                      pos_y_l=(uint8_t)(posy_int);
-                      data[3]=pos_y_l;
-                      data[4]=pos_y_h;
-                      crc=crc16_ccitt(&data,10);
-                      crc_h=(uint8_t)(crc >> 8 );
-                      crc_l=(uint8_t)(crc);
-                      if(pos_y_h==0x00)
-                      {
-                        trame[4]=0x02;
-                        trame[5]=pos_y_l;
-                        trame[6]=pos_y_h;
-                      }
-                      else
-                      {
-                        trame[4]=0x03;
-                        trame[5]=pos_y_l;
-                        trame[6]=pos_y_h;
-                      }
-                      trame[12]=crc_l;
-                      trame[13]=crc_h;
-                      for(uint8_t i=0;i<=15;i++)
-                      {
-                        Vpforce.write(trame[i]);
-                      }
-                      // torque_y=0.1f;
-                    }
-                  }
-                  break;
-                  case 0x02:
-                  {
-                    if(Vpforce_buffer[1]==0x20)
-                    {
-
-                    }
-                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
-                    {
-                      writing_torque=1;
-                      torque_x=0.0f;
-                      if(old_torque_x!=torque_x)
-                      {
-                        servox.write(servo_x);
-                        old_torque_x=torque_x;
-                      }
-                      new_torque=1;
-                    }
-                    else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
-                    {
-                      writing_torque=1;
-                      torque_y=0.0f;
-                      if(old_torque_y!=torque_y)
-                      {
-                        servoy.write(servo_y);
-                        old_torque_y=torque_y;
-                      }
-                      if(old_torque_x!=torque_x)
-                      new_torque=1;
-                    }
-                    // writing_torque=1;
-                    // torque_x=0.0f;
-                    // torque_y=0.0f;
-                    // tick = HAL_GetTick();
-                    // diff_tick=tick-oldtick;
-                    // // if(diff_tick>1)
-                    // {
-                    //   debug.println("0x02");
-                    //   debug.println(torque_y);
-                    //   if(old_torque_y!=torque_y)
-                    //   {
-                    //     servoy.write(servo_y);
-                    //     // servo.write(servo_out);
-                    //     // UART.setDuty(torque_y);
-                    //     old_torque_y=torque_y;
-                    //   }
-                    //   if(old_torque_x!=torque_x)
-                    //   {
-                    //     servox.write(servo_x);
-                    //     // servo.write(servo_out);
-                    //     // UART.setDuty(torque_y);
-                    //     old_torque_x=torque_x;
-                    //   }
-                    //   oldtick=tick;
-                    // }
-                    // // tick = HAL_GetTick();
-                    // // debug.println("0x02");
-                    // // debug.println(tick);
-                    // // debug.write(printf("%f\r",torque_y));
-                    // new_torque=1;
-
-                  }
-                  break;
-                  case 0x03:
-                  {
-                    writing_torque=1;
-
-                    if(Vpforce_buffer[1]==0xFF)
-                    {
-
-                    }
-                    else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
-                    {
-                      tor_y_l=Vpforce_buffer[2];
-                      tor_y = (int16_t)tor_y_l;
-                      torque_y=(float)tor_y/1000.0f;
-                      
-                      tick = HAL_GetTick();
-                      diff_tick=tick-oldtick;
-                      // if(diff_tick>1)
-                      {
-                        debug.println("0x03");
-                        debug.println(torque_y);
-                        if(old_torque_y!=torque_y)
-                        {
-                          servo_out_y=servo_y-torque_y*force_multiplicator;
-                          if(servo_out_y<=50.0f)
-                          {
-                            servo_out_y=50.0f;
-                          }
-                          else if(servo_out_y>=130.0f)
-                          {
-                            servo_out_y=130.0f;
-                          }
-                          servoy.write(servo_out_y);
-                          old_torque_y=torque_y;
-                        }
-                        oldtick=tick;
-                      }
-                      // debug.println("0x03");
-                      // debug.write(printf("%f\r",torque_y));
-                      new_torque=1;
-                    }
-                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
-                    {
-                      tor_x_l=Vpforce_buffer[2];
-                      tor_x = (int16_t)tor_x_l;
-                      torque_x=(float)tor_x/1000.0f;
-                      
-                      tick = HAL_GetTick();
-                      diff_tick=tick-oldtick;
-                      // if(diff_tick>1)
-                      {
-                        debug.println("0x03");
-                        debug.println(torque_y);
-                        if(old_torque_x!=torque_x)
-                        {
-                          servo_out_x=servo_x+torque_x*force_multiplicator;
-                          if(servo_out_x<=50.0f)
-                          {
-                            servo_out_x=50.0f;
-                          }
-                          else if(servo_out_x>=130.0f)
-                          {
-                            servo_out_x=130.0f;
-                          }
-                          servox.write(servo_out_x);
-                          old_torque_x=torque_x;
-                        }
-                        oldtick=tick;
-                      }
-                      // debug.println("0x03");
-                      // debug.write(printf("%f\r",torque_y));
-                      new_torque=1;
-                    }
-
-                  }
-                  break;
-                  case 0x07:
-                  {
-                    writing_torque=1;
-                    if(Vpforce_buffer[1]==0xFF)
-                    {
-
-                    }
-                    else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[4]==0x01)
-                    {
-                      tor_y_h=Vpforce_buffer[3];
-                      tor_y_l=Vpforce_buffer[2];
-                      tor_y = (int16_t)tor_y_h<<8 | tor_y_l;
-                      torque_y=(float)tor_y/1000.0f;
-                      if(torque_y>20.0f || torque_y<-20.0f)
-                      {
-                        debug.write(printf("%f\r",torque_y));
-                      }
-                      tick = HAL_GetTick();
-                      diff_tick=tick-oldtick;
-                      // if(diff_tick>1)
-                      {
-                        debug.println("0x07");
-                        debug.println(torque_y);
-                        if(old_torque_y!=torque_y)
-                        {
-                          servo_out_y=servo_y-torque_y*force_multiplicator;
-                          if(servo_out_y<=45.0f)
-                          {
-                            servo_out_y=45.0f;
-                          }
-                          else if(servo_out_y>=135.0f)
-                          {
-                            servo_out_y=135.0f;
-                          }
-                          servoy.write(servo_out_y);
-                          old_torque_y=torque_y;
-                        }
-                        oldtick=tick;
-                      }
-                      // debug.println("0x07");
-                      
-                      // debug.write(printf("%f\r",torque_y));
-                    
-                      new_torque=1;
-                    }
-                    else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[4]==0x01)
-                    {
-                      tor_x_h=Vpforce_buffer[3];
-                      tor_x_l=Vpforce_buffer[2];
-                      tor_x = (int16_t)tor_x_h<<8 | tor_x_l;
-                      torque_x=(float)tor_x/1000.0f;
-                      if(torque_x>20.0f || torque_x<-20.0f)
-                      {
-                        debug.write(printf("%f\r",torque_x));
-                      }
-                      tick = HAL_GetTick();
-                      diff_tick=tick-oldtick;
-                      // if(diff_tick>1)
-                      {
-                        debug.println("0x07");
-                        debug.println(torque_x);
-                        if(old_torque_x!=torque_x)
-                        {
-                          servo_out_x=servo_x+torque_x*force_multiplicator;
-                          if(servo_out_x<=45.0f)
-                          {
-                            servo_out_x=45.0f;
-                          }
-                          else if(servo_out_x>=135.0f)
-                          {
-                            servo_out_x=135.0f;
-                          }
-                          servox.write(servo_out_x);
-                          old_torque_x=torque_x;
-                        }
-                        oldtick=tick;
-                      }
-                      // debug.println("0x07");
-                      
-                      // debug.write(printf("%f\r",torque_y));
-                    
-                      new_torque=1;
-                    }
-                    else
-                    {}
-                  }
-                  break;
+                  Vpforce_state=WAITING_FOR_FRAME_ID;
                 }
-                writing_torque=0;
-                memset(&Vpforce_buffer,0x00,256);
+                else
+                {}
+                break;
               }
-              else
+              case WAITING_FOR_FRAME_ID:
               {
-                Vpforce_buffer[Vpforce_index]=ch;
-                Vpforce_index++;
+                if(ch==0x00)
+                {
+                  Vpforce_state=WAITING_FOR_FRAME_ID;
+                }
+                else
+                {
+                  Vpforce_state=WAITING_FOR_END_NUMBER;
+                  Vpforce_buffer[Vpforce_index]=ch;
+                  Vpforce_index++;
+                }
+                break;
               }
-              break;
+              case WAITING_FOR_END_NUMBER:
+              {
+                if(ch==0x00)
+                {
+                  Vpforce_state=WAITING_FOR_MAGIC_NUMBER;
+                  Vpforce_index=0;
+                  switch(Vpforce_buffer[0])
+                  {
+                    case 0x04:
+                    {
+                      if(writing_pos==0)//odrive is not currently writing his feedback
+                      {
+                        old_pos_x=pos_x;
+                        old_pos_y=pos_y;
+                      }
+                      if(Vpforce_buffer[1]==0x31)
+                      {
+                        X_input=analogRead(X_pin);
+                        // servo_x=mapfloat((float)X_input,x_min, x_max, 50.0f, 140.0f);
+                        float mapped_X =map_output(X_input,xx_table,xy_table);
+                        pos_x=mapfloat(mapped_X,0.0f, 1024.0f, 300.0f, 1200.0f);
+                        servo_x=mapfloat(mapped_X,0.0f, 1024.0f, 55.0f, 115.0f);
+                        // servox.write(servo_x);
+                        
+                        if((mapped_X<=mid_point+deadband)&&(mapped_X>=mid_point-deadband))
+                        {
+                          //send 0 to odrive
+                          roll_value =0.0f;
+                        }
+                        else
+                        {
+                          if(mapped_X>=mid_point+deadband)
+                          {
+                            roll_value=mapfloat(mapped_X,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+                          }
+                          if(mapped_X<=mid_point-deadband)
+                          {
+                            roll_value=mapfloat(mapped_X,0.0f,mid_point-deadband,-1.0f,0.0f);
+                          }
+                        }
+
+                        float Odrive_axis0_value = 0.0f;
+                        float Odrive_axis1_value = 0.0f;
+
+                        Odrive_axis0_value = (roll_value*roll_factor)+(pitch_value*pitch_factor);
+                        Odrive_axis1_value = (-roll_value*roll_factor)+(pitch_value*pitch_factor);
+
+                        memcpy(tor_buf,0,32);
+                        uint8_t nb = sprintf(tor_buf,"p 0 %3f 0 0\r\n",Odrive_axis0_value);
+                        for(uint8_t i=0;i<=nb-1;i++)
+                        {
+                          Odrive.write(tor_buf[i]);
+                        }
+
+                        memcpy(tor_buf,0,32);
+                        nb = sprintf(tor_buf,"p 1 %3f 0 0\r\n",Odrive_axis1_value);
+                        for(uint8_t i=0;i<=nb-1;i++)
+                        {
+                          Odrive.write(tor_buf[i]);
+                        }
+                        // Odrive_state = ASKING_FEEDBACK;
+
+                        uint16_t crc=0;
+                        // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                        // crc=crc16_ccitt(&data1,10);
+
+                        //            char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                        // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
+
+                                  char data[10]={0x21,0x30,0x00,0x98,0x02,0x00,0xfe,0xff,0x2b,0x30};//cda7 //0003217003c3010101052a30dac900
+                        char trame[15]={0x00,0x03,0x21,0x30,0x03,0x98,0x02,0x07,0xfe,0xff,0x2b,0x30,0x1e,0x38,0x00};
+                        crc=crc16_ccitt(&data,10);
+                        // pos_y=3744.0f;
+                        // pos_y=2331.67017f;
+                        int16_t posx_int=(int16_t)pos_x;
+                                      /*
+                        y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
+                        # print(y_2s)
+                        trame = (header+'00'+y_2s+dy+footer)*/
+                        pos_x_h=(uint8_t)(posx_int >> 8);
+                        pos_x_l=(uint8_t)(posx_int);
+                        data[3]=pos_x_l;
+                        data[4]=pos_x_h;
+                        crc=crc16_ccitt(&data,10);
+                        crc_h=(uint8_t)(crc >> 8 );
+                        crc_l=(uint8_t)(crc);
+                        if(pos_x_h==0x00)
+                        {
+                          trame[4]=0x02;
+                          trame[5]=pos_x_l;
+                          trame[6]=pos_x_h;
+                        }
+                        else
+                        {
+                          trame[4]=0x03;
+                          trame[5]=pos_x_l;
+                          trame[6]=pos_x_h;
+                        }
+                        trame[12]=crc_l;
+                        trame[13]=crc_h;
+                        for(uint8_t i=0;i<=15;i++)
+                        {
+                          Vpforce.write(trame[i]);
+                        }
+
+                      }
+                      else if(Vpforce_buffer[1]==0x11)
+                      {
+                        // Read analog here
+                        Y_input=analogRead(Y_pin);
+                        // pos_y=(float)Y_input;
+                        // servo_y=mapfloat((float)Y_input,y_min, y_max, 120.0f, 60.0f);
+                        float mapped_Y =map_output(Y_input,yx_table,yy_table);
+                        pos_y=mapfloat(mapped_Y,0.0f, 1024.0f, 300.0f, 1200.0f);
+                        servo_y=mapfloat(mapped_Y,0.0f, 1024.0f, 120.0f, 60.0f);
+
+                        
+                        if((mapped_Y<=mid_point+deadband)&&(mapped_Y>=mid_point-deadband))
+                        {
+                          pitch_value =0.0f;
+                        }
+                        else
+                        {
+                          if(mapped_Y>=mid_point+deadband)
+                          {
+                            pitch_value=mapfloat(mapped_Y,mid_point+deadband, 1024.0f, 0.0f, 1.0f);
+                          }
+                          if(mapped_Y<=mid_point-deadband)
+                          {
+                            pitch_value=mapfloat(mapped_Y,0.0f,mid_point-deadband,-1.0f,0.0f);
+                          }
+                        }
+
+
+                        uint16_t crc=0;
+                        // char data1[10]={0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                        // crc=crc16_ccitt(&data1,10);
+                        char data[10]={0x01,0x30,0x00,0xa0,0x0e,0x00,0xf8,0xff,0x2b,0x34};//cda7 //0003217003c3010101052a30dac900
+                        char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
+                        crc=crc16_ccitt(&data,10);
+                        // pos_y=3744.0f;
+                        // pos_y=2331.67017f;
+                        int16_t posy_int=(int16_t)pos_y;
+                        // char trame[15]={0x00,0x03,0x01,0x30,0x03,0xa0,0x0e,0x07,0xf8,0xff,0x2b,0x34,0xcd,0xa7,0x00};
+                                      /*
+                        y_2s=(y.to_bytes(2,byteorder="little", signed=True)).hex()
+                        # print(y_2s)
+                        trame = (header+'00'+y_2s+dy+footer)*/
+                        pos_y_h=(uint8_t)(posy_int >> 8);
+                        pos_y_l=(uint8_t)(posy_int);
+                        data[3]=pos_y_l;
+                        data[4]=pos_y_h;
+                        crc=crc16_ccitt(&data,10);
+                        crc_h=(uint8_t)(crc >> 8 );
+                        crc_l=(uint8_t)(crc);
+                        if(pos_y_h==0x00)
+                        {
+                          trame[4]=0x02;
+                          trame[5]=pos_y_l;
+                          trame[6]=pos_y_h;
+                        }
+                        else
+                        {
+                          trame[4]=0x03;
+                          trame[5]=pos_y_l;
+                          trame[6]=pos_y_h;
+                        }
+                        trame[12]=crc_l;
+                        trame[13]=crc_h;
+                        for(uint8_t i=0;i<=15;i++)
+                        {
+                          Vpforce.write(trame[i]);
+                        }
+                        // torque_y=0.1f;
+                      }
+                    }
+                    break;
+                    case 0x02:
+                    {
+                      if(Vpforce_buffer[1]==0x20)
+                      {
+
+                      }
+                      else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                      {
+                        writing_torque=1;
+                        torque_x=0.0f;
+                        if(old_torque_x!=torque_x)
+                        {
+                          servox.write(servo_x);
+                          old_torque_x=torque_x;
+                        }
+                        new_torque=1;
+                      }
+                      else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                      {
+                        writing_torque=1;
+                        torque_y=0.0f;
+                        if(old_torque_y!=torque_y)
+                        {
+                          servoy.write(servo_y);
+                          old_torque_y=torque_y;
+                        }
+                        if(old_torque_x!=torque_x)
+                        new_torque=1;
+                      }
+                      // writing_torque=1;
+                      // torque_x=0.0f;
+                      // torque_y=0.0f;
+                      // tick = HAL_GetTick();
+                      // diff_tick=tick-oldtick;
+                      // // if(diff_tick>1)
+                      // {
+                      //   debug.println("0x02");
+                      //   debug.println(torque_y);
+                      //   if(old_torque_y!=torque_y)
+                      //   {
+                      //     servoy.write(servo_y);
+                      //     // servo.write(servo_out);
+                      //     // UART.setDuty(torque_y);
+                      //     old_torque_y=torque_y;
+                      //   }
+                      //   if(old_torque_x!=torque_x)
+                      //   {
+                      //     servox.write(servo_x);
+                      //     // servo.write(servo_out);
+                      //     // UART.setDuty(torque_y);
+                      //     old_torque_x=torque_x;
+                      //   }
+                      //   oldtick=tick;
+                      // }
+                      // // tick = HAL_GetTick();
+                      // // debug.println("0x02");
+                      // // debug.println(tick);
+                      // // debug.write(printf("%f\r",torque_y));
+                      // new_torque=1;
+
+                    }
+                    break;
+                    case 0x03:
+                    {
+                      writing_torque=1;
+
+                      if(Vpforce_buffer[1]==0xFF)
+                      {
+
+                      }
+                      else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                      {
+                        tor_y_l=Vpforce_buffer[2];
+                        tor_y = (int16_t)tor_y_l;
+                        torque_y=(float)tor_y/1000.0f;
+                        
+                        tick = HAL_GetTick();
+                        diff_tick=tick-oldtick;
+                        // if(diff_tick>1)
+                        {
+                          debug.println("0x03");
+                          debug.println(torque_y);
+                          if(old_torque_y!=torque_y)
+                          {
+                            servo_out_y=servo_y-torque_y*force_multiplicator;
+                            if(servo_out_y<=50.0f)
+                            {
+                              servo_out_y=50.0f;
+                            }
+                            else if(servo_out_y>=130.0f)
+                            {
+                              servo_out_y=130.0f;
+                            }
+                            servoy.write(servo_out_y);
+                            old_torque_y=torque_y;
+                          }
+                          oldtick=tick;
+                        }
+                        // debug.println("0x03");
+                        // debug.write(printf("%f\r",torque_y));
+                        new_torque=1;
+                      }
+                      else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[3]==0x04 && Vpforce_buffer[4]==0x01)
+                      {
+                        tor_x_l=Vpforce_buffer[2];
+                        tor_x = (int16_t)tor_x_l;
+                        torque_x=(float)tor_x/1000.0f;
+                        
+                        tick = HAL_GetTick();
+                        diff_tick=tick-oldtick;
+                        // if(diff_tick>1)
+                        {
+                          debug.println("0x03");
+                          debug.println(torque_y);
+                          if(old_torque_x!=torque_x)
+                          {
+                            servo_out_x=servo_x+torque_x*force_multiplicator;
+                            if(servo_out_x<=50.0f)
+                            {
+                              servo_out_x=50.0f;
+                            }
+                            else if(servo_out_x>=130.0f)
+                            {
+                              servo_out_x=130.0f;
+                            }
+                            servox.write(servo_out_x);
+                            old_torque_x=torque_x;
+                          }
+                          oldtick=tick;
+                        }
+                        // debug.println("0x03");
+                        // debug.write(printf("%f\r",torque_y));
+                        new_torque=1;
+                      }
+
+                    }
+                    break;
+                    case 0x07:
+                    {
+                      writing_torque=1;
+                      if(Vpforce_buffer[1]==0xFF)
+                      {
+
+                      }
+                      else if(Vpforce_buffer[1]==0x10 && Vpforce_buffer[4]==0x01)
+                      {
+                        tor_y_h=Vpforce_buffer[3];
+                        tor_y_l=Vpforce_buffer[2];
+                        tor_y = (int16_t)tor_y_h<<8 | tor_y_l;
+                        torque_y=(float)tor_y/1000.0f;
+                        if(torque_y>20.0f || torque_y<-20.0f)
+                        {
+                          debug.write(printf("%f\r",torque_y));
+                        }
+                        tick = HAL_GetTick();
+                        diff_tick=tick-oldtick;
+                        // if(diff_tick>1)
+                        {
+                          debug.println("0x07");
+                          debug.println(torque_y);
+                          if(old_torque_y!=torque_y)
+                          {
+                            servo_out_y=servo_y-torque_y*force_multiplicator;
+                            if(servo_out_y<=45.0f)
+                            {
+                              servo_out_y=45.0f;
+                            }
+                            else if(servo_out_y>=135.0f)
+                            {
+                              servo_out_y=135.0f;
+                            }
+                            servoy.write(servo_out_y);
+                            old_torque_y=torque_y;
+                          }
+                          oldtick=tick;
+                        }
+                        // debug.println("0x07");
+                        
+                        // debug.write(printf("%f\r",torque_y));
+                      
+                        new_torque=1;
+                      }
+                      else if(Vpforce_buffer[1]==0x30 && Vpforce_buffer[4]==0x01)
+                      {
+                        tor_x_h=Vpforce_buffer[3];
+                        tor_x_l=Vpforce_buffer[2];
+                        tor_x = (int16_t)tor_x_h<<8 | tor_x_l;
+                        torque_x=(float)tor_x/1000.0f;
+                        if(torque_x>20.0f || torque_x<-20.0f)
+                        {
+                          debug.write(printf("%f\r",torque_x));
+                        }
+                        tick = HAL_GetTick();
+                        diff_tick=tick-oldtick;
+                        // if(diff_tick>1)
+                        {
+                          debug.println("0x07");
+                          debug.println(torque_x);
+                          if(old_torque_x!=torque_x)
+                          {
+                            servo_out_x=servo_x+torque_x*force_multiplicator;
+                            if(servo_out_x<=45.0f)
+                            {
+                              servo_out_x=45.0f;
+                            }
+                            else if(servo_out_x>=135.0f)
+                            {
+                              servo_out_x=135.0f;
+                            }
+                            servox.write(servo_out_x);
+                            old_torque_x=torque_x;
+                          }
+                          oldtick=tick;
+                        }
+                        // debug.println("0x07");
+                        
+                        // debug.write(printf("%f\r",torque_y));
+                      
+                        new_torque=1;
+                      }
+                      else
+                      {}
+                    }
+                    break;
+                  }
+                  writing_torque=0;
+                  memset(&Vpforce_buffer,0x00,256);
+                }
+                else
+                {
+                  Vpforce_buffer[Vpforce_index]=ch;
+                  Vpforce_index++;
+                }
+                break;
+              }
             }
           }
+        }
+        else
+        {
+          read_error++;
+          vTaskDelay(1);
         }
       }
       // vTaskDelay(1);
